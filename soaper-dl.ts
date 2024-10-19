@@ -12,15 +12,21 @@ const tempFile = path.join(os.tmpdir(), 'soaper.tmp')
 const filename = path.basename(url.fileURLToPath(import.meta.url))
 const searchTerm = process.argv.slice(2).join('%20')
 
-if (!searchTerm) {
+if (searchTerm === '-h' || searchTerm === '--help') {
   console.log(`Usage: ${filename} <SEARCH TERM>`)
   process.exit(1)
+}
+
+if (!searchTerm) {
+  // fetch new release list to fzf
+  console.log('[info] Nothing found, try another search term')
+  process.exit(0)
 }
 
 const BASE_URI = 'https://soaper.tv'
 const SUB_DL_PATH =  '/d/Videos/'
 
-const search: string = async () => {
+async function search(): string {
   const searchUrl = `${BASE_URI}/search.html?keyword=`
 
   // console.log('search: ', searchUrl + searchTerm )
@@ -46,7 +52,7 @@ const search: string = async () => {
     fzfLines.push(`[${year}] ${title.replaceAll(' ', '_')} ${BASE_URI + href}`)
   })
 
-  const fzf = spawnSync(`echo "${fzfLines.join('\n')}" | fzf --cycle --with-nth 1,2`, {
+  const fzf = spawnSync(`echo "${fzfLines.join('\n')}" | fzf --header-first --header="Search Results" --cycle --with-nth 1,2`, {
     // stdout has to be pipe here
     stdio: ['inherit', 'pipe', 'inherit'],
     shell: true,
@@ -67,46 +73,27 @@ async function main() {
   const ajaxType = isSeries ? 'GetEInfoAjax' : 'GetMInfoAjax'
 
   const dlLinks =  await getDlLinks(link, ajaxType)
-  console.log('links:', dlLinks)
-
-  if (!isSeries) {
-    // movie, just dl both links
-    if (dlLinks.subLink) {
-      const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
-      console.info(`[info] downloading subs to ${subPath}`)
-      spawnSync(`curl ${BASE_URI + dlLinks.subLink} -o ${subPath}`, {
-        stdio: ['inherit', 'inherit', 'inherit'],
-        shell: true,
-        encoding: 'utf-8'
-      })
-    }
-
-    spawnSync(`yt-dlp '${BASE_URI + dlLinks.m3u8Link}' -o ${fileName}.mp4`, {
-      stdio: ['inherit', 'inherit', 'inherit'],
-      shell: true,
-      encoding: 'utf-8'
-    })
+  // console.log('links:', dlLinks)
+  type Payload = {
+   dlLinks: {m3u8Link: string, subLink: string};
+   fileName: string;
+   isSeries: boolean;
+   ajaxType: string;
+   year: string;
+   name: string;
+   link: string;
+  }
+  const payload: Payload = {
+    dlLinks,
+    fileName,
+    isSeries,
+    ajaxType,
+    year,
+    name,
+    link
   }
 
-    // fs.writeFileSync(tempFile, vidUrls.join('\n'))
-    //   const seasonNum = vidUrls[0].match(/S([0-9]{2})E/)[1]
-    //   console.log(`[info] there are ${vidUrls.length} episodes in season ${seasonNum.replace(/^0/, '')}`)
-    //   console.log(`[info] Use 'sed' like selection to choose what episodes to download (eg. "1p;5p;10,22p" to download episodes 1 5 and 10-22)`)
-  //   const rl = readline.createInterface({
-  //     input: process.stdin,
-  //     output: process.stdout,
-  //   })
-  //   let chosenEps = `1,${vidUrls.length}p`
-  //   const question = '[????]'
-  //   const answer = await rl.question(`${question} (press enter to choose all) > `)
-  //   rl.close()
-  //   if (answer) chosenEps = answer
-  //   spawnSync(`sed -n "${chosenEps}" ${tempFile} | xargs -tl yt-dlp`, {
-  //     stdio: ['inherit', 'inherit', 'inherit'],
-  //     shell: true,
-  //     encoding: 'utf-8'
-  //   })
-  
+  download(payload)
 }
 
 async function getDlLinks(link: string, ajaxType: string) {
@@ -125,6 +112,70 @@ async function getDlLinks(link: string, ajaxType: string) {
   return {
     m3u8Link,
     subLink: subPath?.path ? subPath.path : null
+  }
+}
+
+async function download({dlLinks, fileName, isSeries, ajaxType, year, name, link}) {
+
+  if (!isSeries) {
+    if (dlLinks.subLink) {
+      const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
+      console.info(`[info] downloading subs to ${subPath}`)
+      spawnSync(`curl ${BASE_URI + dlLinks.subLink} -o ${subPath}`, {
+        stdio: ['inherit', 'inherit', 'inherit'],
+        shell: true,
+        encoding: 'utf-8'
+      })
+    }
+
+    spawnSync(`yt-dlp '${BASE_URI + dlLinks.m3u8Link}' -o ${fileName}.mp4`, {
+      stdio: ['inherit', 'inherit', 'inherit'],
+      shell: true,
+      encoding: 'utf-8'
+    })
+  }
+
+  if (isSeries) {
+    function zeroPad(n) { return Number(n) < 10 ? '0' + n : n }
+    // get list of eps and links
+    const $ = await fetch(link)
+      .then(res => res.text())
+      .then(html => cheerio.load(html))
+
+    const seasons = $('.alert-info-ex')
+    const fzfEpList: string[] = []
+    let seasonNum = 1
+    let epNum = 1
+    for (let i = seasons.length - 1; i >= 0; i--) {
+      const eps = $(seasons[i]).find('a')
+      for (let y = eps.length -1; y >= 0; y--) {
+        const el = eps[y]
+        const epName = $(el).text().replaceAll(' ', '_').split('.')[1]
+        fzfEpList.push(`[S${zeroPad(seasonNum)}E${zeroPad(epNum++)}] ${epName} ${BASE_URI + $(el).attr('href')}`)
+      }
+      seasonNum++
+      epNum = 1
+    }
+
+    const fzf = spawnSync(`echo "${fzfEpList.join('\n')}" | fzf --header-first --header="Choose episodes to download with <TAB>" --multi --cycle --with-nth 1,2`, {
+      // stdout has to be pipe here
+      stdio: ['inherit', 'pipe', 'inherit'],
+      shell: true,
+      encoding: 'utf-8'
+    })
+      const episodes = fzf.stdout.split('\n').sort()
+
+      for (const ep of episodes) {
+        const [epNum, name, link] = ep.split(' ')
+        const fileName = `${name}_${year}`
+        spawnSync(`yt-dlp '${BASE_URI + link}' -o ${fileName}.mp4`, {
+          stdio: ['inherit', 'inherit', 'inherit'],
+          shell: true,
+          encoding: 'utf-8'
+        })
+      }
+
+
   }
 }
 
