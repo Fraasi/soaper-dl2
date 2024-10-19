@@ -18,9 +18,10 @@ if (!searchTerm) {
 }
 
 const BASE_URI = 'https://soaper.tv'
+const SUB_DL_PATH =  '/d/Videos/'
 
 const search: string = async () => {
-  const searchUrl = 'https://soaper.tv/search.html?keyword='
+  const searchUrl = `${BASE_URI}/search.html?keyword=`
 
   // console.log('search: ', searchUrl + searchTerm )
   const $ = await fetch(searchUrl + searchTerm)
@@ -34,7 +35,7 @@ const search: string = async () => {
     process.exit(0)
   }
 
-  let fzfLines = ''
+  const fzfLines: string[] = []
   results.each((i, el) => {
     const [year, title]: [string, string] = $(el).text().split('\n').filter( e => e !== '')
     const href: string =  $(el).find('h5 > a').attr('href')
@@ -42,12 +43,10 @@ const search: string = async () => {
     // console.log('title:', title)
     // console.log('href:', href)
 
-    fzfLines += `[${year}] ${title.replace(' ', '_')} ${BASE_URI + href}\n`
+    fzfLines.push(`[${year}] ${title.replaceAll(' ', '_')} ${BASE_URI + href}`)
   })
-  // remove trailing \n
-  fzfLines = fzfLines.replace(/\n$/, '')
 
-  const fzf = spawnSync(`echo "${fzfLines}" | fzf --cycle --with-nth 1,2 | cut -d' ' -f3`, {
+  const fzf = spawnSync(`echo "${fzfLines.join('\n')}" | fzf --cycle --with-nth 1,2`, {
     // stdout has to be pipe here
     stdio: ['inherit', 'pipe', 'inherit'],
     shell: true,
@@ -58,23 +57,41 @@ const search: string = async () => {
 }
 
 async function main() {
-
+  // eg. '[2024] V/H/S/Beyond https://soaper.tv/movie_PnG636Pk7v.html'
   const chosenLink: string = await search()
-  console.log('chosenLink:', chosenLink)
   if (!chosenLink) process.exit(1)
+  const [year, name, link] = chosenLink.split(' ')
 
-  const downLinks = []
+  const fileName = `${name}_${year}`
   const isSeries = chosenLink.includes('/tv')
   const ajaxType = isSeries ? 'GetEInfoAjax' : 'GetMInfoAjax'
 
-  const links =  await getDlLink(chosenLink, ajaxType)
-  console.log('links:', links)
+  const dlLinks =  await getDlLinks(link, ajaxType)
+  console.log('links:', dlLinks)
 
-  // if (isSeries) {
-  //   fs.writeFileSync(tempFile, vidUrls.join('\n'))
-  //   const seasonNum = vidUrls[0].match(/S([0-9]{2})E/)[1]
-  //   console.log(`[info] there are ${vidUrls.length} episodes in season ${seasonNum.replace(/^0/, '')}`)
-  //   console.log(`[info] Use 'sed' like selection to choose what episodes to download (eg. "1p;5p;10,22p" to download episodes 1 5 and 10-22)`)
+  if (!isSeries) {
+    // movie, just dl both links
+    if (dlLinks.subLink) {
+      const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
+      console.info(`[info] downloading subs to ${subPath}`)
+      spawnSync(`curl ${BASE_URI + dlLinks.subLink} -o ${subPath}`, {
+        stdio: ['inherit', 'inherit', 'inherit'],
+        shell: true,
+        encoding: 'utf-8'
+      })
+    }
+
+    spawnSync(`yt-dlp '${BASE_URI + dlLinks.m3u8Link}' -o ${fileName}.mp4`, {
+      stdio: ['inherit', 'inherit', 'inherit'],
+      shell: true,
+      encoding: 'utf-8'
+    })
+  }
+
+    // fs.writeFileSync(tempFile, vidUrls.join('\n'))
+    //   const seasonNum = vidUrls[0].match(/S([0-9]{2})E/)[1]
+    //   console.log(`[info] there are ${vidUrls.length} episodes in season ${seasonNum.replace(/^0/, '')}`)
+    //   console.log(`[info] Use 'sed' like selection to choose what episodes to download (eg. "1p;5p;10,22p" to download episodes 1 5 and 10-22)`)
   //   const rl = readline.createInterface({
   //     input: process.stdin,
   //     output: process.stdout,
@@ -89,10 +106,10 @@ async function main() {
   //     shell: true,
   //     encoding: 'utf-8'
   //   })
-  // }
+  
 }
 
-async function getDlLink(link: string, ajaxType: string) {
+async function getDlLinks(link: string, ajaxType: string) {
   const pass = link.match(/_(?<pass>.*)\.html/).groups.pass
   const res = await fetch(`${BASE_URI}/home/index/${ajaxType}`, {
     "headers": {
@@ -103,10 +120,11 @@ async function getDlLink(link: string, ajaxType: string) {
     "method": "POST"
   }).then(r => r.json())
   const {subs, val: m3u8Link }: {subs: Array<{name: string, path: string}>, m3u8Link: string} = res
-  const { path: subLink } = subs.find(sub => sub.name.includes('en'))
+  const subPath: {path: string, name: string } | undefined = subs.find(sub => sub.name.includes('en'))
+
   return {
     m3u8Link,
-    subLink
+    subLink: subPath?.path ? subPath.path : null
   }
 }
 
