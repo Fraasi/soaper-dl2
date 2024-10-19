@@ -5,15 +5,15 @@
   "type": "module",
   "main": "-",
   "scripts": {
-    "tsup": "tsup soaper-dl.js",
+    "tsup": "tsup soaper-dl.ts",
     "posttsup": "mv dist/soaper-dl.js dist/soaper-dl && chmod +x dist/soaper-dl",
-    "lint": "eslint soaper-dl.js",
+    "lint": "eslint soaper-dl.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "fraasi",
   "license": "ISC",
   "dependencies": {
-    "cheerio": "^1.0.0-rc.12"
+    "cheerio": "^1.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.2.0",
