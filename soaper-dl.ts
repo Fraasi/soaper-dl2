@@ -8,6 +8,16 @@ import { spawnSync } from 'node:child_process'
 // import * as readline from 'node:readline/promises'
 import * as cheerio from 'cheerio'
 
+type Payload = {
+  dlLinks: {m3u8Link: string, subLink: string | null};
+  fileName: string;
+  isSeries: boolean;
+  ajaxType: string;
+  year: string;
+  name: string;
+  link: string;
+}
+
 // const tempFile = path.join(os.tmpdir(), 'soaper.tmp')
 const filename = path.basename(url.fileURLToPath(import.meta.url))
 const searchTerm = process.argv.slice(2).join('%20')
@@ -26,7 +36,7 @@ if (!searchTerm) {
 const BASE_URI = 'https://soaper.tv'
 const SUB_DL_PATH =  '/d/Videos'
 
-async function search(): string {
+async function search(): Promise<string> {
   const searchUrl = `${BASE_URI}/search.html?keyword=`
 
   // console.log('search: ', searchUrl + searchTerm )
@@ -41,9 +51,9 @@ async function search(): string {
   }
 
   const fzfLines: string[] = []
-  results.each((i, el) => {
-    const [year, title]: [string, string] = $(el).text().split('\n').filter( e => e !== '')
-    const href: string =  $(el).find('h5 > a').attr('href')
+  results.each((_i, el) => {
+    const [year, title]: string[] = $(el).text().split('\n').filter( e => e !== '')
+    const href =  $(el).find('h5 > a').attr('href') as string
     // console.log('year:', year)
     // console.log('title:', title)
     // console.log('href:', href)
@@ -76,15 +86,7 @@ async function main() {
   const isSeries = chosenLink.includes('/tv')
   const ajaxType = isSeries ? 'GetEInfoAjax' : 'GetMInfoAjax'
   const dlLinks =  await getDlLinks(link, ajaxType)
-  type Payload = {
-    dlLinks: {m3u8Link: string, subLink: string | null};
-    fileName: string;
-    isSeries: boolean;
-    ajaxType: string;
-    year: string;
-    name: string;
-    link: string;
-  }
+
   const payload: Payload = {
     dlLinks,
     fileName,
@@ -99,7 +101,7 @@ async function main() {
 }
 
 async function getDlLinks(link: string, ajaxType: string): Promise<{m3u8Link: string, subLink: string | null}> {
-  const pass: string | null | undefined = link.match(/_(?<pass>.*)\.html/).groups?.pass
+  const pass: string = link.match(/_(?<pass>.*)\.html/)?.groups?.pass ?? ''
   if (!pass) throw '[soaper-dl-error] Couldn\'t get passkey'
     const res = await fetch(`${BASE_URI}/home/index/${ajaxType}`, {
       "headers": {
@@ -107,7 +109,7 @@ async function getDlLinks(link: string, ajaxType: string): Promise<{m3u8Link: st
         "Referer": `${BASE_URI}${link}`
       },
       "body": `pass=${pass}`,
-        "method": "POST"
+      "method": "POST"
     }).then(r => r.json())
     // console.log('res:', res)
     type Res = {
@@ -124,7 +126,7 @@ async function getDlLinks(link: string, ajaxType: string): Promise<{m3u8Link: st
     }
 }
 
-async function download({dlLinks, fileName, isSeries, year, name, link}) {
+async function download({dlLinks, fileName, isSeries, year, name, link}: Payload) {
 
   if (!isSeries) {
     if (dlLinks.subLink) {
@@ -148,7 +150,7 @@ async function download({dlLinks, fileName, isSeries, year, name, link}) {
   }
 
   if (isSeries) {
-    function zeroPad(n) { return Number(n) < 10 ? '0' + n : n }
+    function zeroPad(n: number): string { return Number(n) < 10 ? '0' + n : String(n) }
     // get list of eps and links
     const $ = await fetch(link)
       .then(res => res.text())
@@ -163,7 +165,7 @@ async function download({dlLinks, fileName, isSeries, year, name, link}) {
       const eps = $(seasons[i]).find('a')
       for (let y = eps.length -1; y >= 0; y--) {
         const el = eps[y]
-        const epName = $(el).text().replaceAll(' ', '_').split('.')[1]
+        const epName: string = $(el).text().replaceAll(' ', '_').split('.')[1] as string
         fzfEpList.push(`[S${zeroPad(seasonNum)}E${zeroPad(epNum++)}] ${epName} ${BASE_URI + $(el).attr('href')}`)
       }
       seasonNum++
