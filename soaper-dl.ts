@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
-import os from 'node:os'
-import fs from 'node:fs'
+// import os from 'node:os'
+// import fs from 'node:fs'
 import url from 'node:url'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import * as readline from 'node:readline/promises'
+// import * as readline from 'node:readline/promises'
 import * as cheerio from 'cheerio'
 
-const tempFile = path.join(os.tmpdir(), 'soaper.tmp')
+// const tempFile = path.join(os.tmpdir(), 'soaper.tmp')
 const filename = path.basename(url.fileURLToPath(import.meta.url))
 const searchTerm = process.argv.slice(2).join('%20')
 
@@ -18,26 +18,25 @@ if (searchTerm === '-h' || searchTerm === '--help') {
 }
 
 if (!searchTerm) {
-  // fetch new release list to fzf
-  console.log('[info] Nothing found, try another search term')
+  // TODO: fetch new release list to fzf
+  console.info('[soaper-dl-info] Nothing found, try another search term')
   process.exit(0)
 }
 
 const BASE_URI = 'https://soaper.tv'
-const SUB_DL_PATH =  '/d/Videos/'
+const SUB_DL_PATH =  '/d/Videos'
 
 async function search(): string {
   const searchUrl = `${BASE_URI}/search.html?keyword=`
 
   // console.log('search: ', searchUrl + searchTerm )
   const $ = await fetch(searchUrl + searchTerm)
-    .then(res => res.text())
-    .then(html => cheerio.load(html))
+  .then(res => res.text())
+  .then(html => cheerio.load(html))
 
   const results = $('div.thumbnail')
-  console.log('resultslength:', results.length)
   if (results.length === 0) {
-    console.log('[info] Nothing found, try another search term')
+    console.info('[soaper-dl-info] Nothing found, try another search term')
     process.exit(0)
   }
 
@@ -62,26 +61,29 @@ async function search(): string {
   return fzf.stdout.replace(/\n$/, '')
 }
 
+function sanitizeName(name: string): string {
+  // illegal chars: / ? < > \ : * | " and ' causes problems when in filename
+  return name.replace(/[/\\*?<>|']/g, '')
+}
+
 async function main() {
   // eg. '[2024] V/H/S/Beyond https://soaper.tv/movie_PnG636Pk7v.html'
   const chosenLink: string = await search()
   if (!chosenLink) process.exit(1)
-  const [year, name, link] = chosenLink.split(' ')
 
-  const fileName = `${name}_${year}`
+  const [year, name, link] = chosenLink.split(' ')
+  const fileName = `${sanitizeName(name)}_${year}`
   const isSeries = chosenLink.includes('/tv')
   const ajaxType = isSeries ? 'GetEInfoAjax' : 'GetMInfoAjax'
-
   const dlLinks =  await getDlLinks(link, ajaxType)
-  // console.log('links:', dlLinks)
   type Payload = {
-   dlLinks: {m3u8Link: string, subLink: string};
-   fileName: string;
-   isSeries: boolean;
-   ajaxType: string;
-   year: string;
-   name: string;
-   link: string;
+    dlLinks: {m3u8Link: string, subLink: string | null};
+    fileName: string;
+    isSeries: boolean;
+    ajaxType: string;
+    year: string;
+    name: string;
+    link: string;
   }
   const payload: Payload = {
     dlLinks,
@@ -96,31 +98,38 @@ async function main() {
   download(payload)
 }
 
-async function getDlLinks(link: string, ajaxType: string) {
-  const pass = link.match(/_(?<pass>.*)\.html/).groups.pass
-  const res = await fetch(`${BASE_URI}/home/index/${ajaxType}`, {
-    "headers": {
-      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "Referer": `${BASE_URI}${link}`
-    },
-    "body": `pass=${pass}`,
-    "method": "POST"
-  }).then(r => r.json())
-  const {subs, val: m3u8Link }: {subs: Array<{name: string, path: string}>, m3u8Link: string} = res
-  const subPath: {path: string, name: string } | undefined = subs.find(sub => sub.name.includes('en'))
+async function getDlLinks(link: string, ajaxType: string): Promise<{m3u8Link: string, subLink: string | null}> {
+  const pass: string | null | undefined = link.match(/_(?<pass>.*)\.html/).groups?.pass
+  if (!pass) throw '[soaper-dl-error] Couldn\'t get passkey'
+    const res = await fetch(`${BASE_URI}/home/index/${ajaxType}`, {
+      "headers": {
+        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Referer": `${BASE_URI}${link}`
+      },
+      "body": `pass=${pass}`,
+        "method": "POST"
+    }).then(r => r.json())
+    // console.log('res:', res)
+    type Res = {
+      subs: null | Array<{name: string, path: string}>,
+      val: string
+    }
 
-  return {
-    m3u8Link,
-    subLink: subPath?.path ? subPath.path : null
-  }
+    const {subs, val: m3u8Link }: Res = res
+    const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes('en'))
+
+    return {
+      m3u8Link,
+      subLink: subPath?.path ? subPath.path : null
+    }
 }
 
-async function download({dlLinks, fileName, isSeries, ajaxType, year, name, link}) {
+async function download({dlLinks, fileName, isSeries, year, name, link}) {
 
   if (!isSeries) {
     if (dlLinks.subLink) {
       const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
-      console.info(`[info] downloading subs to ${subPath}`)
+      console.info(`[soaper-dl-info] Downloading subtitles to ${subPath}`)
       spawnSync(`curl ${BASE_URI + dlLinks.subLink} -o ${subPath}`, {
         stdio: ['inherit', 'inherit', 'inherit'],
         shell: true,
@@ -128,6 +137,9 @@ async function download({dlLinks, fileName, isSeries, ajaxType, year, name, link
       })
     }
 
+
+    console.info(`[soaper-dl-info] Downloading movie ${SUB_DL_PATH}/${fileName}`)
+    // console.log('command:', `yt-dlp '${BASE_URI + dlLinks.m3u8Link}' -o ${fileName}.mp4`)
     spawnSync(`yt-dlp '${BASE_URI + dlLinks.m3u8Link}' -o ${fileName}.mp4`, {
       stdio: ['inherit', 'inherit', 'inherit'],
       shell: true,
@@ -144,6 +156,7 @@ async function download({dlLinks, fileName, isSeries, ajaxType, year, name, link
 
     const seasons = $('.alert-info-ex')
     const fzfEpList: string[] = []
+    // loop thru backwards, see webpage
     let seasonNum = 1
     let epNum = 1
     for (let i = seasons.length - 1; i >= 0; i--) {
@@ -163,19 +176,28 @@ async function download({dlLinks, fileName, isSeries, ajaxType, year, name, link
       shell: true,
       encoding: 'utf-8'
     })
-      const episodes = fzf.stdout.split('\n').sort()
+    // sort selected ep
+    const episodes = fzf.stdout.split('\n').sort()
 
-      for (const ep of episodes) {
-        const [epNum, name, link] = ep.split(' ')
-        const fileName = `${name}_${year}`
-        spawnSync(`yt-dlp '${BASE_URI + link}' -o ${fileName}.mp4`, {
-          stdio: ['inherit', 'inherit', 'inherit'],
-          shell: true,
-          encoding: 'utf-8'
-        })
-      }
+    for (const ep of episodes) {
+      if (!ep) continue
+        console.log('ep:', ep)
+      const [episode, name, link] = ep.split(' ')
+      // console.log('link:', link)
+      // console.log('name:', name)
+      // console.log('episode:', episode)
+      //
+      // TODO: getDlLinks for link before passing to ytdlp
 
-
+      const fileName = `${episode}_${sanitizeName(name)}`
+      console.info(`[soaper-dl-info] Downloading episode ${SUB_DL_PATH}/${fileName}`)
+      // console.log('command:', `yt-dlp '${link}' -o ${fileName}.mp4`)
+      spawnSync(`yt-dlp '${link}' -o ${fileName}.mp4`, {
+        stdio: ['inherit', 'inherit', 'inherit'],
+        shell: true,
+        encoding: 'utf-8'
+      })
+    }
   }
 }
 
