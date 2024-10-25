@@ -10,4 +10,6 @@ export default defineConfig({
   //Always bundle modules matching given patterns
   noExternal: ['cheerio'],
   skipNodeModulesBundle: true,
+  sourcemap: true,
+  tsconfig: './tsconfig.json'
 })

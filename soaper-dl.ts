@@ -7,6 +7,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import * as cheerio from 'cheerio'
 
+
 type Payload = {
   dlLinks: {m3u8Link: string, subLink: string | null};
   fileName: string;
@@ -19,15 +20,14 @@ type DlLinks = {
   subLink: string | null;
 }
 
-// const TEMP_FILE = path.join(os.tmpdir(), 'soaper-dl.tmp')
 const FILE_NAME = path.basename(url.fileURLToPath(import.meta.url))
 const SEARCH_TERM = process.argv.slice(2).join(' ')
-console.log('SEARCH_TERM:', SEARCH_TERM)
 const BASE_URI = 'https://soaper.tv'
 const SUB_LANG = 'en'
 const SUB_DL_PATH =  '/d/Videos'
 
 
+console.log('SEARCH_TERM:', SEARCH_TERM)
 if (SEARCH_TERM === '-h' || SEARCH_TERM === '--help') {
   console.log(`Usage: ${FILE_NAME} <SEARCH TERM>`)
   process.exit(0)
@@ -42,12 +42,11 @@ if (!SEARCH_TERM) {
 async function search(): Promise<string> {
   const searchUrl = `${BASE_URI}/search.html?keyword=`
 
-  // console.log('search: ', searchUrl + SEARCH_TERM )
   const $ = await fetch(searchUrl + SEARCH_TERM)
   .then(res => res.text())
   .then(html => cheerio.load(html))
 
-  const results = $('div.thumbnail')
+  const results = $('div.thumbnail.text-center')
   if (results.length === 0) {
     console.info('[soaper-dl] Nothing found, try another search term')
     process.exit(0)
@@ -55,9 +54,12 @@ async function search(): Promise<string> {
 
   const fzfLines: string[] = []
   results.each((_i, el) => {
-    const [year, title]: string[] = $(el).text().split('\n').filter( e => e !== '')
+    // 25.10 wtf, suddenly .text()  returns gazillion \n and \t
+    // console.log('el:', $(el).text().replaceAll(/\t/g, '').split('\n').filter(e => (e !== '\n' && e !== '')))
+    const year = $(el).find('.img-group > div').text()
+    const title = $(el).find('h5').text().replaceAll(' ', '_')
     const href =  $(el).find('h5 > a').attr('href') as string
-    fzfLines.push(`[${year}] ${title.replaceAll(' ', '_')} ${BASE_URI + href}`)
+    fzfLines.push(`[${year}] ${title} ${BASE_URI + href}`)
   })
 
   const fzf = spawnSync(`echo "${fzfLines.join('\n')}" | fzf --header-first --header="Search Results" --cycle --with-nth 1,2`, {
@@ -99,29 +101,29 @@ async function getDlLinks(pageLink: string, ajaxType: string): Promise<DlLinks> 
   // console.log('pass:', pass)
   if (!pass) throw '[soaper-dl-error] Couldn\'t get passkey'
 
-  const result = await fetch(`${BASE_URI}/home/index/${ajaxType}`, {
-    "headers": {
-      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "Referer": `${BASE_URI}${pageLink}`
-    },
-    "body": `pass=${pass}`,
-      "method": "POST"
-  }).then(r => r.json())
-  // console.log('getDlLinks:after result')
+    const result = await fetch(`${BASE_URI}/home/index/${ajaxType}`, {
+      "headers": {
+        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Referer": `${BASE_URI}${pageLink}`
+      },
+      "body": `pass=${pass}`,
+        "method": "POST"
+    }).then(r => r.json())
+    // console.log('getDlLinks:after result')
 
-  // console.log('result:', result)
-  type Links = {
-    subs: null | Array<{name: string, path: string}>;
-    val: string;
-  }
-  const {subs, val: m3u8Link }: Links = result
-  if (m3u8Link === 'Cannot get video source.') throw '[soaper-dl-error] Cannot get video source.'
-  const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SUB_LANG))
+    // console.log('result:', result)
+    type Links = {
+      subs: null | Array<{name: string, path: string}>;
+      val: string;
+    }
+    const {subs, val: m3u8Link }: Links = result
+    if (m3u8Link === 'Cannot get video source.') throw '[soaper-dl-error] Cannot get video source.'
+      const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SUB_LANG))
 
-  return {
-    m3u8Link,
-    subLink: subPath?.path ? subPath.path : null
-  }
+    return {
+      m3u8Link,
+      subLink: subPath?.path ? subPath.path : null
+    }
 }
 
 async function runShell(command: string, std: 'pipe' | 'inherit' = 'inherit'): Promise<void> {
@@ -150,8 +152,8 @@ async function startDownload({dlLinks, fileName, isSeries, pageLink}: Payload) {
     function zeroPad(n: number): string { return Number(n) < 10 ? '0' + n : String(n) }
     // get list of eps and links
     const $ = await fetch(pageLink)
-                .then(res => res.text())
-                .then(html => cheerio.load(html))
+    .then(res => res.text())
+    .then(html => cheerio.load(html))
 
     const seasons = $('.alert-info-ex')
     const fzfEpList: string[] = []
@@ -181,7 +183,7 @@ async function startDownload({dlLinks, fileName, isSeries, pageLink}: Payload) {
     const commands: string[] = []
     for (const ep of episodes) {
       if (!ep) continue
-      const { dlLinks, fileName }: Payload = await getPayload(ep)
+        const { dlLinks, fileName }: Payload = await getPayload(ep)
       const { m3u8Link, subLink } = dlLinks
       if (subLink) {
         const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
@@ -189,7 +191,7 @@ async function startDownload({dlLinks, fileName, isSeries, pageLink}: Payload) {
         commands.push(commandCURL)
         // runShell(commandCURL)
       }
-      const commandYTDLP = `yt-dlp '${BASE_URI + m3u8Link}' -o ${fileName}.mp4`
+      const commandYTDLP = `yt-dlp --quiet '${BASE_URI + m3u8Link}' -o ${fileName}.mp4`
       commands.push(commandYTDLP)
       // await runShell(commandYTDLP)
     }
@@ -199,11 +201,11 @@ async function startDownload({dlLinks, fileName, isSeries, pageLink}: Payload) {
       console.info(`[soaper-dl] Downloading ${command.split(' ').at(-1)}`)
       // running 'command' thru runShell func doesn't work for sequential ddownloads for some reason
       spawnSync(command, {
-          // stdout has to be inherit here
-          stdio: ['inherit', 'inherit', 'inherit'],
-          shell: true,
-          encoding: 'utf-8'
-        })
+        // stdout has to be inherit here
+        stdio: ['inherit', 'inherit', 'inherit'],
+        shell: true,
+        encoding: 'utf-8'
+      })
     }
     //   if (link.endsWith('srt')) await runShell(`curl ${link}`)
     //   else if (link.endsWith('mp4')) await runShell(`yt-dlp ${link}`)
@@ -219,9 +221,13 @@ async function startDownload({dlLinks, fileName, isSeries, pageLink}: Payload) {
 }
 
 async function main() {
-  const chosenLink: string = await search()
+  const chosenLink: string = await search().catch(err => {
+    console.error('[soaper-dl-error] Search fetch failed')
+    console.error(err)
+    process.exit(1)
+  })
   if (!chosenLink) process.exit(1)
-  const payload: Payload = await getPayload(chosenLink)
+    const payload: Payload = await getPayload(chosenLink)
   startDownload(payload)
 }
 
