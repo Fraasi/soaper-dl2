@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 
+import  os from 'node:os'
 import url from 'node:url'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import * as cheerio from 'cheerio'
 
-
 const FILE_NAME = path.basename(url.fileURLToPath(import.meta.url))
 const SEARCH_TERM = process.argv.slice(2).join(' ')
 const BASE_URI = 'https://soaper.tv'
 const SUB_LANG = 'en'
-const SUB_DL_PATH =  '/d/Videos'
+const SOAPER_DOWNLOAD_PATH = process.env.SOAPER_DOWNLOAD_PATH || os.homedir()
 
 console.log('SEARCH_TERM:', SEARCH_TERM)
 if (SEARCH_TERM === '-h' || SEARCH_TERM === '--help') {
@@ -27,7 +27,8 @@ if (!SEARCH_TERM) {
 async function search(): Promise<string> {
   const searchUrl = `${BASE_URI}/search.html?keyword=`
 
-  const $ = await fetch(searchUrl + SEARCH_TERM)
+  type Cheerio = ReturnType<typeof cheerio.load>;
+  const $: Cheerio = await fetch(searchUrl + SEARCH_TERM)
   .then(res => res.text())
   .then(html => cheerio.load(html))
 
@@ -110,13 +111,13 @@ async function startDownload(chosenLink: string): Promise<void> {
     const { m3u8Link, subLink }: DlLinks = await getDlLinks(pageLink, ajaxType)
     const fileName = sanitizeName(`${name}_${year}`)
     if (subLink) {
-      const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
-      console.info(`[soaper-dl] Downloading subtitles ${subPath}`)
-      runShell(`curl ${BASE_URI + subLink} -o ${subPath}`)
+      // const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
+      console.info(`[soaper-dl] Downloading subtitles ${fileName}`)
+      runShell(`curl ${BASE_URI + subLink} --output-dir=${SOAPER_DOWNLOAD_PATH} -o ${fileName}.en.srt`)
     }
 
-    console.info(`[soaper-dl] Downloading ${SUB_DL_PATH}/${fileName}`)
-    runShell(`yt-dlp '${BASE_URI + m3u8Link}' -o ${fileName}.mp4`)
+    console.info(`[soaper-dl] Downloading ${SOAPER_DOWNLOAD_PATH}/${fileName}`)
+    runShell(`yt-dlp '${BASE_URI + m3u8Link}' -P ${SOAPER_DOWNLOAD_PATH} -o ${fileName}.mp4`)
   }
 
   if (isSeries) {
@@ -152,20 +153,23 @@ async function startDownload(chosenLink: string): Promise<void> {
     // sort selected eps to dl oldest first
     const selectedEpisodes = fzf.stdout.split('\n').sort()
     const commands: string[] = []
+    // TODO: check for a folder with same name as series
+
     for (const ep of selectedEpisodes) {
       if (!ep) continue
       const [epNum, name, epPageLink] = ep.split(' ')
       const fileName = sanitizeName(`${seriesName}_${epNum}_${name}`)
       const { m3u8Link, subLink }: DlLinks = await getDlLinks(epPageLink, ajaxType)
       if (subLink) {
-        const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
-        console.info(`[soaper-dl] Downloading subtitles ${subPath}`)
-        const commandCurl = `curl '${BASE_URI + subLink}' -o ${subPath}`
+        // const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
+        const commandCurl = `curl '${BASE_URI + subLink}' --output-dir=${SOAPER_DOWNLOAD_PATH} -o ${fileName}.en.srt`
         commands.push(commandCurl)
       }
-      const commandYTDLP = `yt-dlp --quiet '${BASE_URI + m3u8Link}' -o ${fileName}.mp4`
+      const commandYTDLP = `yt-dlp --quiet '${BASE_URI + m3u8Link}' -P ${SOAPER_DOWNLOAD_PATH} -o ${fileName}.mp4`
       commands.push(commandYTDLP)
     }
+
+
     console.log('commands:', commands)
     // needs this loop for sequential dls to work
     // running 'command' thru runShell func doesn't work for sequential ddownloads for some reason
