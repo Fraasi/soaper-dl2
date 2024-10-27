@@ -99,7 +99,7 @@ async function runShell(command: string, std: 'pipe' | 'inherit' = 'inherit'): P
 
 function sanitizeName(name: string): string {
   // illegal chars: / ? < > \ : * | " causes problems when in filename, also remove []'()
-  return name.replace(/[/\\*?<>|'\[\]\(\)]/g, '')
+  return name.replace(/[/\\*?<>|'[\]()]/g, '')
 }
 
 async function startDownload(chosenLink: string): Promise<void> {
@@ -132,12 +132,12 @@ async function startDownload(chosenLink: string): Promise<void> {
     const fzfEpList: string[] = []
 
     const seasons = $('.alert-info-ex')
-    for (let season of seasons) {
+    for (const season of seasons) {
       const seasonText = $(season).find('h4').text()
       const seasonNum = (/Season(\d){1,2}/.exec(seasonText)?.[1] || 'N/A') as string
 
       const episodes = $(season).find('div > a')
-      for (let ep of episodes) {
+      for (const ep of episodes) {
         const [epNum, epName] = $(ep).text().replaceAll(' ', '_').split('.') as string[]
         fzfEpList.push(`[S${zeroPad(seasonNum) }E${zeroPad(epNum)}] ${epName} ${BASE_URI + $(ep).attr('href')}`)
       }
@@ -157,7 +157,8 @@ async function startDownload(chosenLink: string): Promise<void> {
 
     for (const ep of selectedEpisodes) {
       if (!ep) continue
-        const [epNum, epName, epPageLink] = ep.split(' ')
+
+      const [epNum, epName, epPageLink] = ep.split(' ')
       const fileName = sanitizeName(`${seriesName}_${epNum}_${epName}`)
       const { m3u8Link, subLink }: DlLinks = await getDlLinks(epPageLink, ajaxType)
       if (subLink) {
