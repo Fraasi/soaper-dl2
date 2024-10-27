@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import  os from 'node:os'
+import os from 'node:os'
+import { mkdir } from 'node:fs/promises';
 import url from 'node:url'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -124,10 +125,11 @@ async function startDownload(chosenLink: string): Promise<void> {
     function zeroPad(n: string): string { return Number(n) < 10 ? '0' + n : n }
     // save series name for filename here
     const seriesName = name.split('_').slice(0, -1).join('_') || ''
+    const seriesFolder = `${SOAPER_DOWNLOAD_PATH}/${seriesName}`
     // get list of eps and links
     const $ = await fetch(pageLink)
-      .then(res => res.text())
-      .then(html => cheerio.load(html))
+    .then(res => res.text())
+    .then(html => cheerio.load(html))
 
     const fzfEpList: string[] = []
 
@@ -153,21 +155,31 @@ async function startDownload(chosenLink: string): Promise<void> {
     // sort selected eps to dl oldest first
     const selectedEpisodes = fzf.stdout.split('\n').sort()
     const commands: string[] = []
-    // TODO: check for a folder with same name as series
+
+    try {
+      // Calling fsPromises.mkdir() when path is a directory that exists results in a rejection only when recursive is false.
+      // returns undefined if dir already exists, path otherwise
+      const createDir = await mkdir(seriesFolder, { recursive: true })
+      if (createDir) console.info(`[soaper-dl] Creating folder for series: ${SOAPER_DOWNLOAD_PATH}/${seriesName}`)
+    } catch (err) {
+      console.error('[soaper-dl-error] Could not make a folder for series')
+      // @ts-ignore
+      console.error(err.message)
+    }
 
     for (const ep of selectedEpisodes) {
       if (!ep) continue
 
-      const [epNum, epName, epPageLink] = ep.split(' ')
-      const fileName = sanitizeName(`${seriesName}_${epNum}_${epName}`)
-      const { m3u8Link, subLink }: DlLinks = await getDlLinks(epPageLink, ajaxType)
-      if (subLink) {
-        // const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
-        const commandCurl = `curl '${BASE_URI + subLink}' --output-dir '${SOAPER_DOWNLOAD_PATH}' -o ${fileName}.en.srt`
-        commands.push(commandCurl)
-      }
-      const commandYTDLP = `yt-dlp --quiet '${BASE_URI + m3u8Link}' -P ${SOAPER_DOWNLOAD_PATH} -o ${fileName}.mp4`
-      commands.push(commandYTDLP)
+        const [epNum, epName, epPageLink] = ep.split(' ')
+        const fileName = sanitizeName(`${seriesName}_${epNum}_${epName}`)
+        const { m3u8Link, subLink }: DlLinks = await getDlLinks(epPageLink, ajaxType)
+        if (subLink) {
+          // const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
+          const commandCurl = `curl '${BASE_URI + subLink}' --output-dir '${seriesFolder}' -o ${fileName}.en.srt`
+          commands.push(commandCurl)
+        }
+        const commandYTDLP = `yt-dlp --quiet '${BASE_URI + m3u8Link}' -P ${seriesFolder} -o ${fileName}.mp4`
+        commands.push(commandYTDLP)
     }
 
 
@@ -192,7 +204,7 @@ async function main() {
     process.exit(1)
   })
   if (!chosenLink) process.exit(1)
-  await startDownload(chosenLink)
+    await startDownload(chosenLink)
 }
 
 main().catch(err => {
