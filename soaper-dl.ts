@@ -9,8 +9,8 @@ import * as cheerio from 'cheerio'
 const FILE_NAME = path.basename(url.fileURLToPath(import.meta.url))
 const SEARCH_TERM = process.argv.slice(2).join(' ')
 const BASE_URI = 'https://soaper.tv'
-const SUB_LANG = 'en'
 const SOAPER_DOWNLOAD_PATH = process.env.SOAPER_DOWNLOAD_PATH || os.homedir()
+const SOAPER_SUB_LANG = process.env.SOAPER_SUB_LANG || 'en'
 
 console.log('SEARCH_TERM:', SEARCH_TERM)
 if (SEARCH_TERM === '-h' || SEARCH_TERM === '--help') {
@@ -80,7 +80,7 @@ async function getDlLinks(pageLink: string, ajaxType: string): Promise<DlLinks> 
     }
     const {subs, val: m3u8Link }: Links = result
     if (m3u8Link === 'Cannot get video source.') throw '[soaper-dl-error] Cannot get video source.'
-      const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SUB_LANG))
+      const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SOAPER_SUB_LANG))
 
     return {
       m3u8Link,
@@ -107,20 +107,20 @@ async function startDownload(chosenLink: string): Promise<void> {
   const [year, name, pageLink] = chosenLink.split(' ')
   const isSeries = ( chosenLink.includes('/tv_')) //  chosenLink.includes('/episode') )
   const ajaxType = isSeries ? 'GetEInfoAjax' : 'GetMInfoAjax'
+
   if (!isSeries) {
     const { m3u8Link, subLink }: DlLinks = await getDlLinks(pageLink, ajaxType)
     const fileName = sanitizeName(`${name}_${year}`)
     if (subLink) {
       // const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
       console.info(`[soaper-dl] Downloading subtitles ${fileName}`)
-      runShell(`curl ${BASE_URI + subLink} --output-dir=${SOAPER_DOWNLOAD_PATH} -o ${fileName}.en.srt`)
+      runShell(`curl ${BASE_URI + subLink} --output-dir '${SOAPER_DOWNLOAD_PATH}' -o ${fileName}.${SOAPER_SUB_LANG}.srt`)
     }
 
     console.info(`[soaper-dl] Downloading ${SOAPER_DOWNLOAD_PATH}/${fileName}`)
     runShell(`yt-dlp '${BASE_URI + m3u8Link}' -P ${SOAPER_DOWNLOAD_PATH} -o ${fileName}.mp4`)
   }
-
-  if (isSeries) {
+  else if (isSeries) {
     function zeroPad(n: string): string { return Number(n) < 10 ? '0' + n : n }
     // save series name for filename here
     const seriesName = name.split('_').slice(0, -1).join('_') || ''
@@ -144,7 +144,7 @@ async function startDownload(chosenLink: string): Promise<void> {
     }
 
     const fzf = spawnSync(`echo "${fzfEpList.join('\n')}" | fzf --header-first --header="Choose episodes to download with <TAB>" --multi --cycle --with-nth 1,2,3`, {
-      // stdout has to be pipe here
+      // stdout has to be pipe here, doesnt work in runShell
       stdio: ['inherit', 'pipe', 'inherit'],
       shell: true,
       encoding: 'utf-8'
@@ -157,12 +157,12 @@ async function startDownload(chosenLink: string): Promise<void> {
 
     for (const ep of selectedEpisodes) {
       if (!ep) continue
-      const [epNum, name, epPageLink] = ep.split(' ')
-      const fileName = sanitizeName(`${seriesName}_${epNum}_${name}`)
+        const [epNum, epName, epPageLink] = ep.split(' ')
+      const fileName = sanitizeName(`${seriesName}_${epNum}_${epName}`)
       const { m3u8Link, subLink }: DlLinks = await getDlLinks(epPageLink, ajaxType)
       if (subLink) {
         // const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
-        const commandCurl = `curl '${BASE_URI + subLink}' --output-dir=${SOAPER_DOWNLOAD_PATH} -o ${fileName}.en.srt`
+        const commandCurl = `curl '${BASE_URI + subLink}' --output-dir '${SOAPER_DOWNLOAD_PATH}' -o ${fileName}.en.srt`
         commands.push(commandCurl)
       }
       const commandYTDLP = `yt-dlp --quiet '${BASE_URI + m3u8Link}' -P ${SOAPER_DOWNLOAD_PATH} -o ${fileName}.mp4`
@@ -171,8 +171,7 @@ async function startDownload(chosenLink: string): Promise<void> {
 
 
     console.log('commands:', commands)
-    // needs this loop for sequential dls to work
-    // running 'command' thru runShell func doesn't work for sequential ddownloads for some reason
+    // needs this extra loop for sequential dls to work, also doesn't work in runShell for some reason
     for (const command of commands){
       console.info(`[soaper-dl] Downloading ${command.split(' ').at(-1)}`)
       spawnSync(command, {
