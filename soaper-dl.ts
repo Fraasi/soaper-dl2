@@ -14,9 +14,9 @@ const SOAPER_DOWNLOAD_PATH = process.env.SOAPER_DOWNLOAD_PATH || os.homedir()
 const SOAPER_SUB_LANG = process.env.SOAPER_SUB_LANG || 'en'
 const CURRENT_YEAR = new Date().getFullYear()
 
-console.log('SEARCH_TERM:', SEARCH_TERM)
 if (SEARCH_TERM === '-h' || SEARCH_TERM === '--help') {
-  console.info(`Usage: ${FILE_NAME} <SEARCH TERM>`)
+  console.info(`Usage: ${FILE_NAME} <SEARCH TERM>
+  (if no search term, fetch  new releases)`)
   process.exit(0)
 }
 
@@ -38,13 +38,19 @@ if (!SEARCH_TERM) {
   startDownload(chosenLink)
 }
 
-async function fuzzyChoose(choices: string[], header: string): Promise<string> {
+async function fuzzyChoose(choices: Array<string>, header: string): Promise<string> {
   const chosenLink = spawnSync(`echo "${choices.join('\n')}" | fzf --header-first --header="${header}" --cycle --with-nth 1,2,3`, {
-    // stdout has to be pipe here to return results
+    // stdout has to be pipe here to return results, defaults are pipe
     stdio: ['inherit', 'pipe', 'inherit'],
     shell: true,
     encoding: 'utf-8'
   })
+  //  exit code of the subprocess, or null if the subprocess terminated due to a signal
+  // exit early here if user cancels fzf, 130 on ctrl-c and ESC
+  if (!chosenLink.status || chosenLink.status === 130) {
+    console.info('[soaper-dl] Canceled')
+    process.exit(0)
+  }
   return chosenLink.stdout.replace(/\n$/, '')
 }
 
@@ -67,10 +73,10 @@ async function search(): Promise<string> {
     const year = $(el).find('.img-group > div').text()
     const title = $(el).find('h5').text().replaceAll(' ', '_')
     const href =  $(el).find('h5 > a').attr('href') as string
-    fzfLines.push(`[${year}] ${title} ${BASE_URI + href}`)
+    parsedLines.push(`[${year}] ${title} ${BASE_URI + href}`)
   })
 
-  const chosenLink: string = await fuzzyChoose(parsedLines, 'Search results' )
+  const chosenLink: string = await fuzzyChoose(parsedLines, `Search results for '${SEARCH_TERM}'` )
   return chosenLink
 }
 
@@ -83,27 +89,27 @@ async function getDlLinks(pageLink: string, ajaxType: string): Promise<DlLinks> 
   const pass: string = pageLink.match(/_(?<pass>.*)\.html/)?.groups?.pass ?? ''
   if (!pass) throw '[soaper-dl-error] Couldn\'t get passkey'
 
-    const result = await fetch(`${BASE_URI}/home/index/${ajaxType}`, {
-      "headers": {
-        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Referer": `${BASE_URI}${pageLink}`
-      },
-      "body": `pass=${pass}`,
-        "method": "POST"
-    }).then(r => r.json())
+  const result = await fetch(`${BASE_URI}/home/index/${ajaxType}`, {
+    "headers": {
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "Referer": `${BASE_URI}${pageLink}`
+    },
+    "body": `pass=${pass}`,
+      "method": "POST"
+  }).then(r => r.json())
 
-    type Links = {
-      subs: null | Array<{name: string, path: string}>;
-      val: string;
-    }
-    const {subs, val: m3u8Link }: Links = result
-    if (m3u8Link === 'Cannot get video source.') throw '[soaper-dl-error] Cannot get video source.'
-      const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SOAPER_SUB_LANG))
+  type Links = {
+    subs: null | Array<{name: string, path: string}>;
+    val: string;
+  }
+  const {subs, val: m3u8Link }: Links = result
+  if (m3u8Link === 'Cannot get video source.') throw '[soaper-dl-error] Cannot get video source.'
+    const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SOAPER_SUB_LANG))
 
-    return {
-      m3u8Link,
-      subLink: subPath?.path ? subPath.path : null
-    }
+  return {
+    m3u8Link,
+    subLink: subPath?.path ? subPath.path : null
+  }
 }
 
 async function runShell(command: string, std: 'pipe' | 'inherit' = 'inherit'): Promise<SpawnSyncReturns<string>> {
@@ -117,20 +123,19 @@ async function runShell(command: string, std: 'pipe' | 'inherit' = 'inherit'): P
 
 function sanitizeName(name: string): string {
   // illegal chars: / ? < > \ : * | " causes problems when in filename, also remove []'()
-  return name.replace(/[/\\*?<>|'[\]()]/g, '')
+  return name.replace(/[/\\*?<:>|'[\]()]/g, '')
 }
 
 async function startDownload(chosenLink: string): Promise<void> {
 
   const [year, name, pageLink] = chosenLink.split(' ')
-  const isSeries = ( chosenLink.includes('/tv_')) //  chosenLink.includes('/episode') )
+  const isSeries = chosenLink.includes('/tv_')
   const ajaxType = isSeries ? 'GetEInfoAjax' : 'GetMInfoAjax'
 
   if (!isSeries) {
     const { m3u8Link, subLink }: DlLinks = await getDlLinks(pageLink, ajaxType)
     const fileName = sanitizeName(`${name}_${year}`)
     if (subLink) {
-      // const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
       console.info(`[soaper-dl] Downloading subtitles ${fileName}`)
       runShell(`curl ${BASE_URI + subLink} --output-dir '${SOAPER_DOWNLOAD_PATH}' -o ${fileName}.${SOAPER_SUB_LANG}.srt`)
     }
@@ -145,11 +150,10 @@ async function startDownload(chosenLink: string): Promise<void> {
     const seriesFolder = `${SOAPER_DOWNLOAD_PATH}/${seriesName}`
     // get list of eps and links
     const $ = await fetch(pageLink)
-    .then(res => res.text())
-    .then(html => cheerio.load(html))
+      .then(res => res.text())
+      .then(html => cheerio.load(html))
 
     const fzfEpList: string[] = []
-
     const seasons = $('.alert-info-ex')
     for (const season of seasons) {
       const seasonText = $(season).find('h4').text()
@@ -162,17 +166,27 @@ async function startDownload(chosenLink: string): Promise<void> {
       }
     }
 
-    const fzf = spawnSync(`echo "${fzfEpList.join('\n')}" | fzf --header-first --header="Choose episodes to download with <TAB>" --multi --cycle --with-nth 1,2,3`, {
-      // stdout has to be pipe here, doesnt work in runShell
-      stdio: ['inherit', 'pipe', 'inherit'],
-      shell: true,
-      encoding: 'utf-8'
-    })
+    const chosenEpisodes = await fuzzyChoose(fzfEpList, 'Choose episodes with <TAB>')
 
     // sort selected eps to dl oldest first
-    const selectedEpisodes = fzf.stdout.split('\n').sort()
+    const sortedEpisodes = chosenEpisodes.split('\n').sort()
     const commands: string[] = []
 
+    for (const ep of sortedEpisodes  ) {
+      if (!ep) continue
+
+      const [epNum, epName, epPageLink] = ep.split(' ')
+      const fileName = sanitizeName(`${seriesName}_${epNum}_${epName}`)
+      const { m3u8Link, subLink }: DlLinks = await getDlLinks(epPageLink, ajaxType)
+      if (subLink) {
+        const commandCurl = `curl '${BASE_URI + subLink}' --output-dir '${seriesFolder}' -o ${fileName}.en.srt`
+        commands.push(commandCurl)
+      }
+      const commandYTDLP = `yt-dlp --quiet '${BASE_URI + m3u8Link}' -P ${seriesFolder} -o ${fileName}.mp4`
+      commands.push(commandYTDLP)
+    }
+
+    // make folder for episodes
     try {
       // Calling fsPromises.mkdir() when path is a directory that exists results in a rejection only when recursive is false.
       // returns undefined if dir already exists, path otherwise
@@ -184,23 +198,6 @@ async function startDownload(chosenLink: string): Promise<void> {
       console.error(err.message)
     }
 
-    for (const ep of selectedEpisodes) {
-      if (!ep) continue
-
-        const [epNum, epName, epPageLink] = ep.split(' ')
-        const fileName = sanitizeName(`${seriesName}_${epNum}_${epName}`)
-        const { m3u8Link, subLink }: DlLinks = await getDlLinks(epPageLink, ajaxType)
-        if (subLink) {
-          // const subPath = `${SUB_DL_PATH}/${fileName}.en.srt`
-          const commandCurl = `curl '${BASE_URI + subLink}' --output-dir '${seriesFolder}' -o ${fileName}.en.srt`
-          commands.push(commandCurl)
-        }
-        const commandYTDLP = `yt-dlp --quiet '${BASE_URI + m3u8Link}' -P ${seriesFolder} -o ${fileName}.mp4`
-        commands.push(commandYTDLP)
-    }
-
-
-    console.log('commands:', commands)
     // needs this extra loop for sequential dls to work, also doesn't work in runShell for some reason
     for (const command of commands){
       console.info(`[soaper-dl] Downloading ${command.split(' ').at(-1)}`)
