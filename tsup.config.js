@@ -7,6 +7,7 @@ export default defineConfig({
   minify: true,
   platform: "node",
   target: 'esnext',
+  module: "NodeNext",
   //Always bundle modules matching given patterns
   noExternal: ['cheerio'],
   skipNodeModulesBundle: true,

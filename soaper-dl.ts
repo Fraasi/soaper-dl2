@@ -6,6 +6,7 @@ import url from 'node:url'
 import path from 'node:path'
 import { spawnSync, SpawnSyncReturns } from 'node:child_process'
 import * as cheerio from 'cheerio'
+type Cheerio = ReturnType<typeof cheerio.load>;
 
 const FILE_NAME = path.basename(url.fileURLToPath(import.meta.url))
 const SEARCH_TERM = process.argv.slice(2).join(' ')
@@ -45,9 +46,9 @@ async function fuzzyChoose(choices: Array<string>, header: string): Promise<stri
     shell: true,
     encoding: 'utf-8'
   })
-  //  exit code of the subprocess, or null if the subprocess terminated due to a signal
+  // exit code of the subprocess, or null if the subprocess terminated due to a signal
   // exit early here if user cancels fzf, 130 on ctrl-c and ESC
-  if (!chosenLink.status || chosenLink.status === 130) {
+  if (chosenLink.status === null || chosenLink.status === 130) {
     console.info('[soaper-dl] Canceled')
     process.exit(0)
   }
@@ -57,7 +58,6 @@ async function fuzzyChoose(choices: Array<string>, header: string): Promise<stri
 async function search(): Promise<string> {
   const searchUrl = `${BASE_URI}/search.html?keyword=`
 
-  type Cheerio = ReturnType<typeof cheerio.load>;
   const $: Cheerio = await fetch(searchUrl + SEARCH_TERM)
     .then(res => res.text())
     .then(html => cheerio.load(html))
@@ -95,16 +95,17 @@ async function getDlLinks(pageLink: string, ajaxType: string): Promise<DlLinks> 
       "Referer": `${BASE_URI}${pageLink}`
     },
     "body": `pass=${pass}`,
-      "method": "POST"
+    "method": "POST"
   }).then(r => r.json())
 
   type Links = {
-    subs: null | Array<{name: string, path: string}>;
+    subs: Array<{name: string; path: string}> | null;
     val: string;
   }
-  const {subs, val: m3u8Link }: Links = result
+
+  const {subs, val: m3u8Link }: Links = result as Links
   if (m3u8Link === 'Cannot get video source.') throw '[soaper-dl-error] Cannot get video source.'
-    const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SOAPER_SUB_LANG))
+  const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SOAPER_SUB_LANG))
 
   return {
     m3u8Link,
@@ -126,6 +127,8 @@ function sanitizeName(name: string): string {
   return name.replace(/[/\\*?<:>|'[\]()]/g, '')
 }
 
+function zeroPad(n: string): string { return Number(n) < 10 ? '0' + n : n }
+
 async function startDownload(chosenLink: string): Promise<void> {
 
   const [year, name, pageLink] = chosenLink.split(' ')
@@ -144,12 +147,11 @@ async function startDownload(chosenLink: string): Promise<void> {
     runShell(`yt-dlp '${BASE_URI + m3u8Link}' -P ${SOAPER_DOWNLOAD_PATH} -o ${fileName}.mp4`)
   }
   else if (isSeries) {
-    function zeroPad(n: string): string { return Number(n) < 10 ? '0' + n : n }
     // save series name for filename here
     const seriesName = name.split('_').slice(0, -1).join('_') || ''
     const seriesFolder = `${SOAPER_DOWNLOAD_PATH}/${seriesName}`
     // get list of eps and links
-    const $ = await fetch(pageLink)
+    const $: Cheerio = await fetch(pageLink)
       .then(res => res.text())
       .then(html => cheerio.load(html))
 
@@ -218,7 +220,7 @@ async function main() {
     process.exit(1)
   })
   if (!chosenLink) process.exit(1)
-    await startDownload(chosenLink)
+  await startDownload(chosenLink)
 }
 
 main().catch(err => {
