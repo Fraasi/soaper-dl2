@@ -4,7 +4,7 @@ import os from 'node:os'
 import { mkdir } from 'node:fs/promises';
 import url from 'node:url'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawnSync, SpawnSyncReturns } from 'node:child_process'
 import * as cheerio from 'cheerio'
 
 const FILE_NAME = path.basename(url.fileURLToPath(import.meta.url))
@@ -12,6 +12,7 @@ const SEARCH_TERM = process.argv.slice(2).join(' ')
 const BASE_URI = 'https://soaper.tv'
 const SOAPER_DOWNLOAD_PATH = process.env.SOAPER_DOWNLOAD_PATH || os.homedir()
 const SOAPER_SUB_LANG = process.env.SOAPER_SUB_LANG || 'en'
+const CURRENT_YEAR = new Date().getFullYear()
 
 console.log('SEARCH_TERM:', SEARCH_TERM)
 if (SEARCH_TERM === '-h' || SEARCH_TERM === '--help') {
@@ -20,9 +21,31 @@ if (SEARCH_TERM === '-h' || SEARCH_TERM === '--help') {
 }
 
 if (!SEARCH_TERM) {
-  // TODO: fetch new release list to fzf
-  console.info('[soaper-dl] Nothing found, try another search term')
-  process.exit(0)
+  const $ = await fetch(`https://soaper.tv/movielist/year/${CURRENT_YEAR}/sort/release`)
+    .then(res => res.text())
+    .then(html => cheerio.load(html))
+
+  const newReleaseList: string[] = []
+  const movs = $('div.thumbnail.text-center')
+  movs.each((_i, el) => {
+    const year = $(el).find('.img-tip.label.label-info').text()
+    const title = $(el).find('h5').text().replaceAll(' ', '_')
+    const href =  $(el).find('h5 > a').attr('href') as string
+    newReleaseList.push(`[${year}] ${title} ${BASE_URI + href}`)
+  })
+
+  const chosenLink: string = await fuzzyChoose(newReleaseList, 'New releases')
+  startDownload(chosenLink)
+}
+
+async function fuzzyChoose(choices: string[], header: string): Promise<string> {
+  const chosenLink = spawnSync(`echo "${choices.join('\n')}" | fzf --header-first --header="${header}" --cycle --with-nth 1,2,3`, {
+    // stdout has to be pipe here to return results
+    stdio: ['inherit', 'pipe', 'inherit'],
+    shell: true,
+    encoding: 'utf-8'
+  })
+  return chosenLink.stdout.replace(/\n$/, '')
 }
 
 async function search(): Promise<string> {
@@ -30,31 +53,25 @@ async function search(): Promise<string> {
 
   type Cheerio = ReturnType<typeof cheerio.load>;
   const $: Cheerio = await fetch(searchUrl + SEARCH_TERM)
-  .then(res => res.text())
-  .then(html => cheerio.load(html))
+    .then(res => res.text())
+    .then(html => cheerio.load(html))
 
-  const results = $('div.thumbnail.text-center')
-  if (results.length === 0) {
+  const searchResults = $('div.thumbnail.text-center')
+  if (searchResults.length === 0) {
     console.info('[soaper-dl] Nothing found, try another search term')
     process.exit(0)
   }
 
-  const fzfLines: string[] = []
-  results.each((_i, el) => {
+  const parsedLines: string[] = []
+  searchResults.each((_i, el) => {
     const year = $(el).find('.img-group > div').text()
     const title = $(el).find('h5').text().replaceAll(' ', '_')
     const href =  $(el).find('h5 > a').attr('href') as string
     fzfLines.push(`[${year}] ${title} ${BASE_URI + href}`)
   })
 
-  const fzf = spawnSync(`echo "${fzfLines.join('\n')}" | fzf --header-first --header="Search Results" --cycle --with-nth 1,2`, {
-    // stdout has to be pipe here to return results
-    stdio: ['inherit', 'pipe', 'inherit'],
-    shell: true,
-    encoding: 'utf-8'
-  })
-
-  return fzf.stdout.replace(/\n$/, '')
+  const chosenLink: string = await fuzzyChoose(parsedLines, 'Search results' )
+  return chosenLink
 }
 
 type DlLinks = {
@@ -89,8 +106,8 @@ async function getDlLinks(pageLink: string, ajaxType: string): Promise<DlLinks> 
     }
 }
 
-async function runShell(command: string, std: 'pipe' | 'inherit' = 'inherit'): Promise<void> {
-  spawnSync(command, {
+async function runShell(command: string, std: 'pipe' | 'inherit' = 'inherit'): Promise<SpawnSyncReturns<string>> {
+  return spawnSync(command, {
     // stdout has to be pipe on some streams
     stdio: ['inherit', std, 'inherit'],
     shell: true,
