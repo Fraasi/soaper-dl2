@@ -11,7 +11,7 @@ import packageJson from './package.json'
 type Cheerio = ReturnType<typeof cheerio.load>;
 
 const SOAPER_DOWNLOAD_PATH = process.env.SOAPER_DOWNLOAD_PATH || os.homedir()
-const SOAPER_SUB_LANG =      process.env.SOAPER_SUB_LANG || 'en'
+const SOAPER_SUBTITLE_LANG = process.env.SOAPER_SUBTITLE_LANG || 'en'
 const SCRIPT_NAME =          path.basename(url.fileURLToPath(import.meta.url))
 const SEARCH_TERM =          process.argv.slice(2).join(' ')
 const BASE_URI =             'https://soaper.tv'
@@ -120,7 +120,7 @@ async function getDlLinks(pageLink: string, ajaxType: string): Promise<DlLinks> 
 
   const {subs, val: m3u8Link }: Links = result as Links
   if (m3u8Link === 'Cannot get video source.') throw '[soaper-dl-error] Cannot get video source.'
-  const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SOAPER_SUB_LANG))
+  const subPath: {path: string, name: string } | undefined = subs?.find(sub => sub.name.includes(SOAPER_SUBTITLE_LANG))
 
   return {
     m3u8Link,
@@ -145,8 +145,8 @@ async function startDownload(chosenLink: string): Promise<void> {
     const { m3u8Link, subLink }: DlLinks = await getDlLinks(pageLink, ajaxType)
     const fileName = sanitizeName(`${name}_${year}`)
     if (subLink) {
-      console.info(`[soaper-dl] Downloading ${SOAPER_DOWNLOAD_PATH}/${fileName}.${SOAPER_SUB_LANG}.srt`)
-      const curlCommand = `curl ${BASE_URI + subLink} --output-dir '${SOAPER_DOWNLOAD_PATH}' -o ${fileName}.${SOAPER_SUB_LANG}.srt`
+      console.info(`[soaper-dl] Downloading ${SOAPER_DOWNLOAD_PATH}/${fileName}.${SOAPER_SUBTITLE_LANG}.srt`)
+      const curlCommand = `curl ${BASE_URI + subLink} --output-dir '${SOAPER_DOWNLOAD_PATH}' -o ${fileName}.${SOAPER_SUBTITLE_LANG}.srt`
       spawnSync(curlCommand, {
         stdio: ['inherit', 'inherit', 'inherit'],
         shell: true,
