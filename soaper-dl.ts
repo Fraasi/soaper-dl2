@@ -19,10 +19,15 @@ const CURRENT_YEAR =         new Date().getFullYear()
 const VERSION =              packageJson.version
 
 if (SEARCH_TERM === '-h' || SEARCH_TERM === '--help') {
-  console.info(`
-Usage: ${SCRIPT_NAME} <SEARCH TERM>
+  console.info(`Usage: ${SCRIPT_NAME} TERM> [-h|--help] <SEARCH TERM>
+
+Options:
+  -h, --help  Show this help
+
+Other:
   fetches new releases list if no <SEARCH TERM>
-  v${VERSION}`)
+
+Version: v${VERSION}`)
   process.exit(0)
 }
 
@@ -148,7 +153,7 @@ async function startDownload(chosenLink: string): Promise<void> {
         encoding: 'utf-8'
       })
     }
-    console.info(`[soaper-dl] Downloading ${SOAPER_DOWNLOAD_PATH}/${fileName}`)
+    console.info(`[soaper-dl] Downloading ${SOAPER_DOWNLOAD_PATH}/${fileName}.mp4`)
     const ytdlpCommand = `yt-dlp '${BASE_URI + m3u8Link}' -P ${SOAPER_DOWNLOAD_PATH} -o ${fileName}.mp4`
     spawnSync(ytdlpCommand, {
       // stdout has to be inherit here for dl to show in terminal
@@ -159,7 +164,7 @@ async function startDownload(chosenLink: string): Promise<void> {
   }
   else if (isSeries) {
     // save series name for filename here
-    const seriesName = name.split('_').slice(0, -1).join('_') || ''
+    const seriesName = sanitizeName(name.split('_').slice(0, -1).join('_') || 'soaper-dl')
     const seriesFolder = `${SOAPER_DOWNLOAD_PATH}/${seriesName}`
     // get list of eps and links
     const $: Cheerio = await fetch(pageLink)
