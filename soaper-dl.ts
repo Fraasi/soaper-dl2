@@ -231,7 +231,7 @@ async function startDownload(chosenLink: string): Promise<void> {
 
 async function main(searchTerm: string) {
 
-  if (!searchTerm) fetchReleases()
+  if (!searchTerm) await fetchReleases()
 
   const chosenLink: string = await search(searchTerm).catch(err => {
     console.error('[soaper-dl-error] Search fetch failed')

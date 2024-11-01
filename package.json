@@ -1,6 +1,6 @@
 {
   "name": "soaper-dl",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "search & download from soaper.tv cli",
   "type": "module",
   "main": "-",
@@ -8,6 +8,7 @@
     "tsup": "tsup soaper-dl.ts",
     "posttsup": "mv dist/soaper-dl.js dist/soaper-dl && chmod +x dist/soaper-dl",
     "lint": "eslint soaper-dl.ts",
+    "version": "npm run tsup",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "fraasi",
