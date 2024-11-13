@@ -19,7 +19,7 @@ const CURRENT_YEAR =         new Date().getFullYear()
 const VERSION =              packageJson.version
 
 if (SEARCH_TERM === '-h' || SEARCH_TERM === '--help') {
-  console.info(`Usage: ${SCRIPT_NAME} TERM> [-h|--help] <SEARCH TERM>
+  console.info(`Usage: ${SCRIPT_NAME} [-h|--help] <SEARCH TERM>
 
 Options:
   -h, --help  Show this help
