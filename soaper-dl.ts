@@ -14,7 +14,7 @@ const SOAPER_DOWNLOAD_PATH = process.env.SOAPER_DOWNLOAD_PATH || os.homedir()
 const SOAPER_SUBTITLE_LANG = process.env.SOAPER_SUBTITLE_LANG || 'en'
 const SCRIPT_NAME =          path.basename(url.fileURLToPath(import.meta.url))
 const SEARCH_TERM =          process.argv.slice(2).join(' ')
-const BASE_URI =             'https://soaper.tv'
+const BASE_URI =             'https://soaper.live'
 const CURRENT_YEAR =         new Date().getFullYear()
 const VERSION =              packageJson.version
 
