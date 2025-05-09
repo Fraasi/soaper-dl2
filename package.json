@@ -1,6 +1,6 @@
 {
   "name": "soaper-dl",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "search & download from soaper.tv cli",
   "type": "module",
   "main": "-",

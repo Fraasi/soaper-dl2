@@ -129,8 +129,8 @@ async function getDlLinks(pageLink: string, ajaxType: string): Promise<DlLinks> 
 }
 
 function sanitizeName(name: string): string {
-  // illegal chars: / ? < > \ : * | " causes problems when in filename, also remove []'()
-  return name.replace(/[/\\*?<:>|'[\]()]/g, '')
+  // illegal chars: / ? < > \ : * | " causes problems when in filename, also remove []'()&,
+  return name.replace(/[/\\*?<:>|'[\]()&,]/g, '')
 }
 
 function zeroPad(n: string): string { return Number(n) < 10 ? '0' + n : n }
